@@ -3,41 +3,57 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <wait.h>
-#include "input_handler.h"
+#include "structures.h"
+#include "input_handler.c"
+
+Memoria mem;
+Program nullProgram;//definir "programa nulo"
 
 int execProgram(char* name, int size){
 	/*
-	if (program name exists in memory array){
-		return 0
+	if size blabla
+
+	for (int i=0; i<256; i++){
+		if (!strcmp(name, mem.programs[i].name)){
+			return 0;
+		}
 	}
-	else{
-		array[unused slot] = open(filename, etc) //???
-		return 1
+	Buscar lugar en la memoria donde poner la wea!
+	for (int i=0; i<256; i++){
+		if (mem.programs[i] == nullProgram){
+			mem.programs[i] = initializeProgram(name, size);
+			return 1;
+		}
 	}
 	*/
 }
 
 int freeProgram(char* name){
 	/*
-	if (program name exists in memory array){
-		free(name) // ????
-		return 1
+	for (int i=0; i<256; i++){
+		if (!strcmp(name, mem.programs[i].name)){
+			revisar la memoria que esta utilizando y liberarla, luego
+			mem.programs[i] = nullProgram;
+			return 1;
+		}
 	}
-	else{
-		return 0
-	}
+	return 0;
 	*/
 }
 
 int assignHeap(char* name, int memSize){
 	/*
-	if (program name exists in memory array){
-		malloc() // ????
-		return 1
+	if (memSize > 256){
+		printf("Max heap size is 256");
+		return 0;
 	}
-	else{
-		return 0
+	for (int i=0; i<256; i++){
+		if (!strcmp(name, mem.programs[i].name)){
+			malloc(name) ??
+			return 1;
+		}
 	}
+	return 0;
 	*/
 }
 
@@ -71,7 +87,7 @@ void execute(char** args){
 }
 
 int main(){
-	int memArray[32];
+	int memoria;
 
     char *line;
     char **args;
