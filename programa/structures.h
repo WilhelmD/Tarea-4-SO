@@ -1,22 +1,19 @@
 #ifndef PROGRAMA_STRUCTURES_H
 #define PROGRAMA_STRUCTURES_H
 
-struct Program{
-	char* name;
+typedef struct{
+	char name[20];
 	int code; //Memoria para el codigo
-	int data; //Datos
-	int heap = 0;
-	int stack = 256;
-	//direcciones de memoria que esta utilizando?
-};
+	int data;
+	int heap;
+	int stack;
+	int *pages;
+} Program;
 
-struct Segment{
-	int pages[32] = {0}; //32 pags de 128 bits
-};
-
-struct Memoria{
-	Segment segments[16];
+typedef struct{
+	int memArray[512];
+	int usedPages[512];
 	Program programs[256];
-};
+} Memory;
 
-#endif //PROGRAMA_STRUCTURES_H
+#endif
