@@ -3,6 +3,26 @@
 #include <stdio.h>
 #include "structures.h"
 
+void initArray(Array *a, size_t initialSize){
+	a->array = (int *)malloc(initialSize * sizeof(int));
+	a->used = 0;
+	a->size = initialSize;
+}
+
+void insertArray(Array *a, int element){
+	if (a->used == a->size){
+		a->size *= 2;
+		a->array = (int *)realloc(a->array, a->size * sizeof(int));
+	}
+	a->array[a->used++] = element;
+}
+
+void freeArray(Array *a){
+	free(a->array);
+	a->array = NULL;
+	a->used = a->size = 0;
+}
+
 char **split(char *phrase, const size_t length, const char delimiter, size_t *n_tokens){
     int words = 1;
 
@@ -55,19 +75,72 @@ char *read_line() {
 }
 
 void assignMemory(char *name, int size, Memory *mem){
-	//encontrar cantidad de pags a asignar
-	//luego buscar pags desocupadas en la memoria y asignarlas
+
+	Program *prog;
+	int pagesToAssign = 4 + size/128;
+
+	if (size % 128 != 0){
+		pagesToAssign += 1;
+	}
+
+	for (int i=0; i<127;i++){
+		if (!strcmp(mem->programs[i].name, name)){
+			prog = &mem->programs[i];
+		}
+	}
+	
+	while(pagesToAssign > 0){
+		for (int i=0; i<511; i++){
+			if (mem->usedPages[i] == 0){
+				prog->pageCount += 1;
+				insertArray(&prog->pages, i);
+				mem->usedPages[i] = 1;
+				pagesToAssign -= 1;
+				break;
+			}
+		}
+	}
+}
+
+void reassignMemory(char *name, int size, Memory *mem){
+
+	Program *prog;
+	int pagesToAssign = size/128;
+
+	if (size % 128 != 0){
+		pagesToAssign += 1;
+	}
+
+	for (int i=0; i<127;i++){
+		if (!strcmp(mem->programs[i].name, name)){
+			prog = &mem->programs[i];
+		}
+	}
+	
+	while(pagesToAssign > 0){
+		for (int i=0; i<511; i++){
+			if (mem->usedPages[i] == 0){
+				prog->pageCount += 1;
+				insertArray(&prog->pages, i);
+				mem->usedPages[i] = 1;
+				pagesToAssign -= 1;
+				break;
+			}
+		}
+	}
 }
 
 Program *initializeProgram(char *name, int size){
 
 	Program *prog = malloc(sizeof(Program));
+	Array pages;
 
 	strcpy(prog->name, name);
 	prog->code = size;
-	prog->data = 0;
+	prog->data = 256;
 	prog->heap = 0;
-	prog->stack = 256; //falta address stuff
+	prog->stack = 256;
+	initArray(&prog->pages, 5);
 
 	return prog;
 }
@@ -94,15 +167,16 @@ int programCmp(Program p1, Program p2){
 
 int execProgram(char* name, int size, Memory *mem, Program *null){
 
-	for (int i=0; i<255; i++){
+	for (int i=0; i<127; i++){
 		if (!strcmp(name, mem->programs[i].name)){
 			return 0;
 		}
 	}
 
-	for (int i=0; i<255; i++){
+	for (int i=0; i<127; i++){
 		if (programCmp(mem->programs[i], *null)){
 			mem->programs[i] = *initializeProgram(name, size);
+			assignMemory(name, 128*4 + size, mem);
 			return 1;
 		}
 	}
@@ -110,9 +184,12 @@ int execProgram(char* name, int size, Memory *mem, Program *null){
 }
 
 int freeProgram(char* name, Memory *mem, Program *null){
-	for (int i=0; i<255; i++){
+	for (int i=0; i<127; i++){
 		if (!strcmp(name, mem->programs[i].name)){
-			//revisar la memoria que esta utilizando y liberarla, luego
+			for (int j = 0; j < mem->programs[i].pageCount; j++){
+				int pageIndex = mem->programs[i].pages.array[j];
+				mem->usedPages[pageIndex] = 0; 
+			}
 			mem->programs[i] = *null;
 			return 1;
 		}
@@ -125,8 +202,9 @@ int assignHeap(char* name, int size, Memory *mem){
 		printf("El tamaño maximo del heap es 256\n");
 		return 0;
 	}
-	for (int i=0; i<255; i++){
+	for (int i=0; i<127; i++){
 		if (!strcmp(name, mem->programs[i].name)){
+			reassignMemory(name, size, mem);
 			mem->programs[i].heap = size;
 			return 1;
 		}
@@ -135,50 +213,102 @@ int assignHeap(char* name, int size, Memory *mem){
 }
 
 int checkMem(char* name, Memory *mem){
-	for (int i=0; i<255; i++){
-		if (!strcmp(name, mem->programs[i].name)){
-			//print total mem used by program + addresses.
-			int total = mem->programs[i].code + mem->programs[i].data + mem->programs[i].stack + mem->programs[i].heap;
-			printf("El total de memoria utilizada por el programa es %d.\n", total);
-			return 1;
+	Program prog;
+	for (int i=0; i<127; i++){
+		if (!strcmp(mem->programs[i].name, name)){
+			prog = mem->programs[i];
+			break;
+		}
+		else{
+			return 0;
 		}
 	}
-	return 0;
+
+	int total = prog.code + prog.data + prog.stack + prog.heap;
+	printf("El total de memoria utilizada por el programa es %d\n", total);
+	printf("Las direcciones utilizadas son:\n");
+
+	for (int i=0; i<prog.pageCount; i++){
+		int pageIndex = prog.pages.array[i];
+		int segmento = mem->memArray[pageIndex]/4096;
+		printf("%d: %d, del segmento %d\n", i+1, mem->memArray[pageIndex], segmento);
+	}
+	return 1;
 }
 
 int readData(char *name, int address, Memory *mem){
-	/*
-	if (address belongs to program){
-		if (permissions are ok){
+	Program prog;
+	int addressCheck = 0;
+
+	for (int i=0; i<127;i++){
+		if (!strcmp(mem->programs[i].name, name)){
+			prog = mem->programs[i];
+			break;
+		}
+		else{
+			return 0;
+		}
+	}
+
+	for (int i=0; i<prog.pageCount; i++){
+		int pageIndex = prog.pages.array[i];
+		if (mem->memArray[pageIndex] == address){
+			addressCheck = 1;
+		}
+	}
+
+	if (addressCheck){
+		printf("Se ha leido con exito\n");
+		return 1;
+		/*if (permissions are ok){
 			printf("Se ha leido con exito\n");
 			return 1;
 		}
 		printf("No tiene los permisos para realizar esa accion\n");
-		return 0;
+		return 0;*/
 	}
 	else{
 		printf("No tiene los permisos para realizar esa accion\n");
 		return 0;
 	}
-	*/
+	
 	return 0;
 }
 
 int writeData(char *name, int address, Memory *mem){
-	/*
-	if (address belongs to program){
-		if (permissions are ok){
+	Program prog;
+	int addressCheck = 0;
+
+	for (int i=0; i<127;i++){
+		if (!strcmp(mem->programs[i].name, name)){
+			prog = mem->programs[i];
+			break;
+		}
+		else{
+			return 0;
+		}
+	}
+	
+	for (int i=0; i<prog.pageCount; i++){
+		int pageIndex = prog.pages.array[i];
+		if (mem->memArray[pageIndex] == address){
+			addressCheck = 1;
+		}
+	}
+
+	if (addressCheck){
+		//if (permissions are ok){
 			printf("Se ha escrito con exito\n");
 			return 1;
-		}
+		/*/}
 		printf("No tiene los permisos para realizar esa accion\n");
-		return 0;
+		return 0;*/
 	}
 	else{
 		printf("No tiene los permisos para realizar esa accion\n");
 		return 0;
 	}
-	*/
+	
 	return 0;
 }
 
@@ -218,19 +348,10 @@ int execute(char** args, Memory *mem, Program *null){
         }
         return 1;
     }else if (!strcmp(args[0],"read")){
-    	a = readData(args[1], atoi(args[2]), mem);//convertir de binaro a dec?
-    	if (a == 0){
-        	printf("No se pudo leer la memoria del programa\n");
-        }
+    	readData(args[1], atoi(args[2]), mem);//convertir de binaro a dec?
         return 1;
     }else if (!strcmp(args[0],"write")){
-    	a = writeData(args[1], atoi(args[2]), mem);//convertir de binario a dec?
-    	if (a){
-        	printf("Escritura realizada con exito\n");
-        }
-        else{
-        	printf("No se pudo escribir en la memoria del programa\n");
-        }
+    	writeData(args[1], atoi(args[2]), mem);//convertir de binario a dec?
         return 1;
     }
     else if (!strcmp(args[0], "exit")){
@@ -246,32 +367,30 @@ int main(){
 
 	Program nullProgram, *null;
 	Memory memoria, *mem;
+	Array Null;
+
 	null = &nullProgram;
 	mem = &memoria;
 
-	
-	strcpy(nullProgram.name, "NULLNAME");//definir "programa nulo". falta address stuff
+	Null.array = NULL;
+	Null.size = 0;
+	Null.used = 0;
+
+	strcpy(nullProgram.name, "NULLNAME");
 	nullProgram.code = 0;
 	nullProgram.data = 0;
 	nullProgram.heap = 0;
 	nullProgram.stack = 0;
+	nullProgram.pageCount = 0;
+	nullProgram.pages = Null;
 
-	for (int i=0; i<255; i++){
+	for (int i=0; i<127; i++){
 		mem->programs[i] = nullProgram;
 	}
 
 	for (int i=0; i<511; i++){
 		mem->memArray[i] = 128*i;
 	}
-
-
-	/*for (int i=0; i<15; i++){
-		mem->segments[i].permission = 0;
-		mem->segments[i].base = (512*i);
-		for (int j=0; j<31; j++){
-			mem->segments[i].pages[j] = 128*j;
-		}
-	}*/
 
     char *line;
     char **args;
